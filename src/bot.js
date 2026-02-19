@@ -422,11 +422,9 @@ bot.command('grafik', async (ctx) => {
         ],
       },
       options: {
-        plugins: {
-          title: { display: true, text: 'Pemasukan vs Pengeluaran' },
-        },
+        title: { display: true, text: 'Pemasukan vs Pengeluaran' },
         scales: {
-          y: { beginAtZero: true },
+          yAxes: [{ ticks: { beginAtZero: true, min: 0 } }],
         },
       },
     };
