@@ -488,59 +488,51 @@ async function resetAllData() {
 
   let totalCount = 0;
 
-  // Hitung total transaksi dan hapus semua sheet bulanan
-  // Tapi simpan sheet pertama (ganti jadi sheet bulan ini yang kosong)
+  // Hitung total transaksi dulu
+  for (const name of monthlySheets) {
+    try {
+      const res = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${name}'!A:A`,
+      });
+      if (res.data.values) totalCount += Math.max(0, res.data.values.length - 1);
+    } catch (e) { /* skip */ }
+  }
+
+  // Buat temp sheet (Google Sheets butuh minimal 1 sheet)
+  const tempName = '__temp_reset__';
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: tempName } } }],
+    },
+  });
+
+  // Ambil semua sheet lagi setelah buat temp
   const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const allSheets = spreadsheet.data.sheets;
 
-  // Pastikan selalu ada minimal 1 sheet — buat sheet temporary jika perlu
-  const tempName = '__temp__';
-  let needsTemp = true;
-  for (const s of allSheets) {
-    if (!monthlySheets.includes(s.properties.title)) {
-      needsTemp = false;
-      break;
-    }
-  }
-
-  if (needsTemp) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [{ addSheet: { properties: { title: tempName } } }],
-      },
-    });
-  }
-
   // Hapus semua sheet bulanan
-  const requests = [];
+  const deleteRequests = [];
   for (const s of allSheets) {
     if (monthlySheets.includes(s.properties.title)) {
-      // Hitung transaksi
-      try {
-        const res = await sheets.spreadsheets.values.get({
-          spreadsheetId,
-          range: `'${s.properties.title}'!A:A`,
-        });
-        if (res.data.values) totalCount += Math.max(0, res.data.values.length - 1);
-      } catch { /* skip */ }
-
-      requests.push({ deleteSheet: { sheetId: s.properties.sheetId } });
+      deleteRequests.push({ deleteSheet: { sheetId: s.properties.sheetId } });
     }
   }
 
-  if (requests.length > 0) {
+  if (deleteRequests.length > 0) {
     await sheets.spreadsheets.batchUpdate({
       spreadsheetId,
-      requestBody: { requests },
+      requestBody: { requests: deleteRequests },
     });
   }
 
-  // Hapus temp sheet jika dibuat
-  if (needsTemp) {
-    const updated = await sheets.spreadsheets.get({ spreadsheetId });
-    const tempSheet = updated.data.sheets.find((s) => s.properties.title === tempName);
-    if (tempSheet) {
+  // Hapus temp sheet
+  const updated = await sheets.spreadsheets.get({ spreadsheetId });
+  const tempSheet = updated.data.sheets.find((s) => s.properties.title === tempName);
+  if (tempSheet) {
+    // Hanya hapus jika masih ada sheet lain
+    if (updated.data.sheets.length > 1) {
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
