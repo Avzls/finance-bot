@@ -203,7 +203,6 @@ bot.command('riwayat', async (ctx) => {
 
 // ─── Pesan tidak dikenali (hanya di private chat) ───────────────────
 bot.on('text', (ctx) => {
-  // Di grup, abaikan pesan biasa agar tidak mengganggu
   if (ctx.chat.type !== 'private') return;
 
   ctx.reply(
@@ -211,24 +210,23 @@ bot.on('text', (ctx) => {
   );
 });
 
-// ─── Start Bot ──────────────────────────────────────────────────────
-async function main() {
-  try {
-    // Inisialisasi header sheet jika belum ada
-    await sheets.initializeSheet();
-    console.log('✅ Koneksi Google Sheets berhasil.');
+// ─── Export bot untuk webhook & support polling untuk dev lokal ──────
+module.exports = bot;
 
-    // Jalankan bot
-    await bot.launch();
-    console.log('🤖 Bot berhasil berjalan!');
-  } catch (error) {
-    console.error('❌ Gagal menjalankan bot:', error.message);
-    process.exit(1);
-  }
+// Jika dijalankan langsung (node src/bot.js) → mode polling untuk development
+if (require.main === module) {
+  (async () => {
+    try {
+      await sheets.initializeSheet();
+      console.log('✅ Koneksi Google Sheets berhasil.');
+      await bot.launch();
+      console.log('🤖 Bot berhasil berjalan! (polling mode)');
+    } catch (error) {
+      console.error('❌ Gagal menjalankan bot:', error.message);
+      process.exit(1);
+    }
+  })();
+
+  process.once('SIGINT', () => bot.stop('SIGINT'));
+  process.once('SIGTERM', () => bot.stop('SIGTERM'));
 }
-
-// Graceful shutdown
-process.once('SIGINT', () => bot.stop('SIGINT'));
-process.once('SIGTERM', () => bot.stop('SIGTERM'));
-
-main();

@@ -1,6 +1,6 @@
 # 💰 Bot Telegram Pencatatan Keuangan
 
-Bot Telegram untuk mencatat pemasukan dan pengeluaran, dengan penyimpanan data di Google Sheets.
+Bot Telegram untuk mencatat pemasukan dan pengeluaran, dengan penyimpanan data di Google Sheets. Deploy gratis di **Vercel**.
 
 ## Fitur
 
@@ -64,33 +64,26 @@ Bot Telegram untuk mencatat pemasukan dan pengeluaran, dengan penyimpanan data d
 
 ### 4. Setup Environment Variables
 
-1. Copy file `.env.example` menjadi `.env`:
-   ```bash
-   cp .env.example .env
-   ```
-2. Isi nilai-nilai berikut di file `.env`:
-   ```env
-   TELEGRAM_TOKEN=token_dari_botfather
-   GOOGLE_SHEET_ID=id_spreadsheet_anda
-   GOOGLE_SERVICE_ACCOUNT_EMAIL=email_service_account
-   GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-   ```
+Copy file `.env.example` menjadi `.env` dan isi:
+```env
+TELEGRAM_TOKEN=token_dari_botfather
+GOOGLE_SHEET_ID=id_spreadsheet_anda
+GOOGLE_SERVICE_ACCOUNT_EMAIL=email_service_account
+GOOGLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+```
 
-> **💡 Tips untuk GOOGLE_PRIVATE_KEY:** Copy seluruh nilai `private_key` dari file JSON service account (termasuk `-----BEGIN...` dan `-----END...`). Pastikan dibungkus dengan tanda kutip ganda (`"`).
+> **💡 Tips untuk GOOGLE_PRIVATE_KEY:** Copy seluruh nilai `private_key` dari file JSON service account. Pastikan dibungkus dengan tanda kutip ganda (`"`).
 
-### 5. Jalankan Secara Lokal
+### 5. Jalankan Secara Lokal (Opsional)
 
 ```bash
-# Install dependencies
 npm install
-
-# Jalankan bot
 npm start
 ```
 
-Bot akan menampilkan `🤖 Bot berhasil berjalan!` jika berhasil.
+Bot akan berjalan dalam mode **polling** dan menampilkan `🤖 Bot berhasil berjalan!`.
 
-### 6. Deploy ke Railway
+### 6. Deploy ke Vercel
 
 1. Push project ke GitHub:
    ```bash
@@ -101,23 +94,33 @@ Bot akan menampilkan `🤖 Bot berhasil berjalan!` jika berhasil.
    git push -u origin main
    ```
 
-2. Buka [Railway.app](https://railway.app/) dan login
+2. Buka [vercel.com](https://vercel.com/) → **Add New Project** → Import repo `finance-bot`
 
-3. Klik **New Project** → **Deploy from GitHub repo**
+3. Tambahkan **Environment Variables** di Vercel:
+   - `TELEGRAM_TOKEN`
+   - `GOOGLE_SHEET_ID`
+   - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
+   - `GOOGLE_PRIVATE_KEY`
 
-4. Pilih repository `finance-bot`
+4. Klik **Deploy** dan tunggu selesai
 
-5. Tambahkan environment variables:
-   - Klik project → **Variables** → **New Variable**
-   - Tambahkan semua variabel dari `.env`:
-     - `TELEGRAM_TOKEN`
-     - `GOOGLE_SHEET_ID`
-     - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
-     - `GOOGLE_PRIVATE_KEY`
+5. Setelah deploy berhasil, catat URL Vercel kamu (contoh: `https://finance-bot-xyz.vercel.app`)
 
-6. Railway akan otomatis deploy. Cek **Logs** untuk memastikan bot berjalan.
+6. **Set webhook** supaya Telegram tahu harus kirim pesan ke mana:
+   ```bash
+   node scripts/set-webhook.js https://finance-bot-xyz.vercel.app
+   ```
+   Akan muncul: `✅ Webhook was set.`
 
-> **⚠️ Penting:** Untuk `GOOGLE_PRIVATE_KEY` di Railway, paste private key apa adanya dari file JSON (termasuk `\n`). Railway akan menangani formatnya.
+7. **Selesai!** Bot kamu sudah online dan gratis selamanya 🎉
+
+> **⚠️ Penting:** Setelah webhook aktif, **jangan** jalankan `npm start` secara bersamaan karena akan bentrok.
+
+> **💡 Kembali ke mode lokal:** Untuk development, hapus webhook dulu:
+> ```bash
+> node scripts/set-webhook.js delete
+> npm start
+> ```
 
 ---
 
@@ -125,7 +128,7 @@ Bot akan menampilkan `🤖 Bot berhasil berjalan!` jika berhasil.
 
 | Masalah | Solusi |
 |---|---|
-| Bot tidak merespon | Cek `TELEGRAM_TOKEN` sudah benar |
+| Bot tidak merespon | Cek webhook sudah di-set (`node scripts/set-webhook.js`) |
 | Error Google Sheets | Pastikan spreadsheet sudah di-share ke service account |
 | `private_key` error | Pastikan key dibungkus tanda kutip dan `\n` tidak hilang |
 | Saldo tidak akurat | Jangan edit data langsung di Google Sheets |
@@ -135,4 +138,4 @@ Bot akan menampilkan `🤖 Bot berhasil berjalan!` jika berhasil.
 - **Runtime:** Node.js
 - **Bot Library:** [Telegraf](https://telegraf.js.org/)
 - **Database:** Google Sheets via [googleapis](https://www.npmjs.com/package/googleapis)
-- **Hosting:** [Railway.app](https://railway.app/)
+- **Hosting:** [Vercel](https://vercel.com/) (gratis)
