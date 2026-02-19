@@ -457,7 +457,7 @@ bot.command('export', async (ctx) => {
     });
 
     // Buat PDF
-    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const doc = new PDFDocument({ size: 'A4', margin: 50 });
     const chunks = [];
 
     doc.on('data', (chunk) => chunks.push(chunk));
@@ -466,57 +466,114 @@ bot.command('export', async (ctx) => {
       doc.on('end', () => resolve(Buffer.concat(chunks)));
     });
 
-    // Header
-    doc.fontSize(18).font('Helvetica-Bold').text('Laporan Keuangan', { align: 'center' });
-    doc.moveDown(0.3);
-    doc.fontSize(10).font('Helvetica').text(`Diekspor: ${new Date(Date.now() + 7 * 3600000).toISOString().split('T')[0]}`, { align: 'center' });
-    doc.moveDown(1);
+    const pageW = 495; // A4 width - 2*margin
+    const leftM = 50;
+    const rightEdge = leftM + pageW;
+    const exportDate = new Date(Date.now() + 7 * 3600000).toISOString().split('T')[0];
 
-    // Ringkasan
-    doc.fontSize(12).font('Helvetica-Bold').text('Ringkasan');
-    doc.moveDown(0.3);
-    doc.fontSize(10).font('Helvetica');
-    doc.text(`Total Pemasukan  : ${formatRupiah(totalMasuk)}`);
-    doc.text(`Total Pengeluaran: ${formatRupiah(totalKeluar)}`);
-    doc.text(`Saldo            : ${formatRupiah(totalMasuk - totalKeluar)}`);
-    doc.text(`Jumlah Transaksi : ${transactions.length}`);
-    doc.moveDown(1);
+    // ── Header bar ──
+    doc.rect(leftM, 45, pageW, 40).fill('#1a1a1a');
+    doc.fontSize(16).font('Helvetica-Bold').fillColor('#ffffff')
+      .text('LAPORAN KEUANGAN', leftM + 15, 55, { width: pageW - 30 });
+    doc.fontSize(8).font('Helvetica').fillColor('#cccccc')
+      .text(exportDate, leftM + 15, 70, { width: pageW - 30 });
 
-    // Tabel header
-    doc.fontSize(12).font('Helvetica-Bold').text('Detail Transaksi');
-    doc.moveDown(0.5);
+    doc.y = 100;
 
-    const tableTop = doc.y;
-    const colX = [40, 120, 175, 240, 340, 520];
-    const colHeaders = ['Tanggal', 'Waktu', 'Tipe', 'Jumlah', 'Keterangan', 'Saldo'];
+    // ── Summary box ──
+    const saldo = totalMasuk - totalKeluar;
+    const summaryY = doc.y;
+    doc.rect(leftM, summaryY, pageW, 60).fill('#f5f5f5');
+    doc.rect(leftM, summaryY, pageW, 60).lineWidth(0.5).strokeColor('#e0e0e0').stroke();
 
-    // Header row
-    doc.fontSize(8).font('Helvetica-Bold');
-    colHeaders.forEach((h, i) => {
-      doc.text(h, colX[i], tableTop, { width: (colX[i + 1] || 560) - colX[i], lineBreak: false });
+    const col3W = pageW / 3;
+    const summaryItems = [
+      { label: 'PEMASUKAN', value: formatRupiah(totalMasuk) },
+      { label: 'PENGELUARAN', value: formatRupiah(totalKeluar) },
+      { label: 'SALDO', value: formatRupiah(saldo) },
+    ];
+
+    summaryItems.forEach((item, i) => {
+      const x = leftM + col3W * i;
+      // Vertical separator
+      if (i > 0) {
+        doc.moveTo(x, summaryY + 10).lineTo(x, summaryY + 50).lineWidth(0.5).strokeColor('#d0d0d0').stroke();
+      }
+      doc.fontSize(7).font('Helvetica').fillColor('#888888')
+        .text(item.label, x + 15, summaryY + 15, { width: col3W - 30 });
+      doc.fontSize(12).font('Helvetica-Bold').fillColor('#1a1a1a')
+        .text(item.value, x + 15, summaryY + 30, { width: col3W - 30 });
     });
 
-    doc.moveTo(40, tableTop + 12).lineTo(555, tableTop + 12).stroke();
-    let rowY = tableTop + 16;
+    doc.y = summaryY + 75;
+
+    // ── Info line ──
+    doc.fontSize(8).font('Helvetica').fillColor('#999999')
+      .text(`${transactions.length} transaksi`, leftM, doc.y);
+    doc.moveDown(1);
+
+    // ── Table ──
+    const colWidths = [75, 50, 55, 90, 145, 80];
+    const colX = [];
+    let cx = leftM;
+    colWidths.forEach((w) => { colX.push(cx); cx += w; });
+
+    const colHeaders = ['TANGGAL', 'WAKTU', 'TIPE', 'JUMLAH', 'KETERANGAN', 'SALDO'];
+    const rowH = 18;
+
+    function drawTableHeader(y) {
+      // Header background
+      doc.rect(leftM, y, pageW, rowH).fill('#1a1a1a');
+      doc.fontSize(7).font('Helvetica-Bold').fillColor('#ffffff');
+      colHeaders.forEach((h, i) => {
+        doc.text(h, colX[i] + 6, y + 5, { width: colWidths[i] - 12, lineBreak: false });
+      });
+      return y + rowH;
+    }
+
+    let rowY = drawTableHeader(doc.y);
 
     // Data rows
-    doc.font('Helvetica').fontSize(8);
-    transactions.forEach((tx) => {
-      if (rowY > 780) {
+    transactions.forEach((tx, idx) => {
+      // Page break check
+      if (rowY + rowH > 780) {
         doc.addPage();
-        rowY = 40;
+        rowY = drawTableHeader(50);
       }
 
-      const color = tx.tipe === 'MASUK' ? '#2e7d32' : '#c62828';
-      doc.fillColor('#000000').text(tx.tanggal, colX[0], rowY, { width: 75, lineBreak: false });
-      doc.text(tx.waktu, colX[1], rowY, { width: 50, lineBreak: false });
-      doc.fillColor(color).text(tx.tipe, colX[2], rowY, { width: 60, lineBreak: false });
-      doc.fillColor('#000000').text(formatRupiah(tx.jumlah), colX[3], rowY, { width: 95, lineBreak: false });
-      doc.text(tx.keterangan.substring(0, 25), colX[4], rowY, { width: 175, lineBreak: false });
-      doc.text(formatRupiah(tx.saldo), colX[5], rowY, { width: 80, lineBreak: false });
+      // Alternating background
+      if (idx % 2 === 0) {
+        doc.rect(leftM, rowY, pageW, rowH).fill('#fafafa');
+      } else {
+        doc.rect(leftM, rowY, pageW, rowH).fill('#ffffff');
+      }
 
-      rowY += 14;
+      // Bottom border
+      doc.moveTo(leftM, rowY + rowH).lineTo(rightEdge, rowY + rowH)
+        .lineWidth(0.3).strokeColor('#e8e8e8').stroke();
+
+      const textY = rowY + 5;
+      doc.fontSize(7.5).font('Helvetica').fillColor('#333333');
+
+      doc.text(tx.tanggal, colX[0] + 6, textY, { width: colWidths[0] - 12, lineBreak: false });
+      doc.text(tx.waktu, colX[1] + 6, textY, { width: colWidths[1] - 12, lineBreak: false });
+
+      // Tipe — just slightly different shade
+      const tipeColor = tx.tipe === 'MASUK' ? '#333333' : '#666666';
+      doc.fillColor(tipeColor).font('Helvetica-Bold')
+        .text(tx.tipe, colX[2] + 6, textY, { width: colWidths[2] - 12, lineBreak: false });
+
+      const sign = tx.tipe === 'MASUK' ? '+' : '-';
+      doc.fillColor('#333333').font('Helvetica')
+        .text(`${sign}${formatRupiah(tx.jumlah)}`, colX[3] + 6, textY, { width: colWidths[3] - 12, lineBreak: false });
+      doc.text(tx.keterangan.substring(0, 22), colX[4] + 6, textY, { width: colWidths[4] - 12, lineBreak: false });
+      doc.text(formatRupiah(tx.saldo), colX[5] + 6, textY, { width: colWidths[5] - 12, lineBreak: false });
+
+      rowY += rowH;
     });
+
+    // Bottom border
+    doc.moveTo(leftM, rowY).lineTo(rightEdge, rowY).lineWidth(0.5).strokeColor('#1a1a1a').stroke();
 
     doc.end();
     const buffer = await pdfReady;

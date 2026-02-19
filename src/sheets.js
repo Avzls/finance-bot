@@ -29,6 +29,15 @@ function getSheetId() {
 const SHEET_NAME = 'Sheet1';
 const RANGE_ALL = `${SHEET_NAME}!A:H`;
 
+// ─── Helper: Parse angka dari Google Sheets (bisa Rp10.000 atau 10000) ─
+function parseNum(val) {
+  if (typeof val === 'number') return val;
+  if (!val) return 0;
+  // Strip Rp, spasi, dan titik pemisah ribuan
+  const cleaned = String(val).replace(/[Rp\s.]/g, '').replace(',', '.');
+  return parseFloat(cleaned) || 0;
+}
+
 // ─── Inisialisasi Header ────────────────────────────────────────────
 async function initializeSheet() {
   const sheets = await getSheets();
@@ -71,7 +80,7 @@ async function getLastSaldo() {
   }
 
   const lastRow = rows[rows.length - 1];
-  const saldo = parseFloat(lastRow[7]) || 0; // Kolom H = Saldo Kumulatif
+  const saldo = parseNum(lastRow[7]); // Kolom H = Saldo Kumulatif
   return saldo;
 }
 
@@ -151,7 +160,7 @@ async function getMonthlyReport(year, month) {
 
     jumlahTransaksi++;
     const tipe = row[4];
-    const jumlah = parseFloat(row[5]) || 0;
+    const jumlah = parseNum(row[5]);
 
     if (tipe === 'MASUK') {
       totalMasuk += jumlah;
@@ -162,7 +171,7 @@ async function getMonthlyReport(year, month) {
 
   // Ambil saldo terkini dari baris terakhir
   const lastRow = rows[rows.length - 1];
-  const saldo = parseFloat(lastRow[7]) || 0;
+  const saldo = parseNum(lastRow[7]);
 
   return { totalMasuk, totalKeluar, saldo, jumlahTransaksi };
 }
@@ -190,9 +199,9 @@ async function getRecentTransactions(count = 10) {
     tanggal: row[0] || '-',
     waktu: row[1] || '-',
     tipe: row[4] || '-',
-    jumlah: parseFloat(row[5]) || 0,
+    jumlah: parseNum(row[5]),
     keterangan: row[6] || '-',
-    saldo: parseFloat(row[7]) || 0,
+    saldo: parseNum(row[7]),
   }));
 }
 
@@ -215,7 +224,7 @@ async function recalculateSaldo() {
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     const tipe = row[4];
-    const jumlah = parseFloat(row[5]) || 0;
+    const jumlah = parseNum(row[5]);
 
     if (tipe === 'MASUK') {
       saldo += jumlah;
@@ -257,7 +266,7 @@ async function deleteLastTransaction() {
     tanggal: lastRow[0],
     waktu: lastRow[1],
     tipe: lastRow[4],
-    jumlah: parseFloat(lastRow[5]) || 0,
+    jumlah: parseNum(lastRow[5]),
     keterangan: lastRow[6],
   };
 
@@ -308,13 +317,13 @@ async function editLastTransaction({ jumlah, keterangan, tipe }) {
 
   const oldData = {
     tipe: lastRow[4],
-    jumlah: parseFloat(lastRow[5]) || 0,
+    jumlah: parseNum(lastRow[5]),
     keterangan: lastRow[6],
   };
 
   // Update field yang diberikan
   const newTipe = tipe || lastRow[4];
-  const newJumlah = jumlah !== undefined ? jumlah : parseFloat(lastRow[5]) || 0;
+  const newJumlah = jumlah !== undefined ? jumlah : parseNum(lastRow[5]);
   const newKeterangan = keterangan !== undefined ? keterangan : lastRow[6];
 
   await sheets.spreadsheets.values.update({
@@ -357,9 +366,9 @@ async function getAllTransactions() {
     userId: row[2] || '',
     username: row[3] || '',
     tipe: row[4] || '',
-    jumlah: parseFloat(row[5]) || 0,
+    jumlah: parseNum(row[5]),
     keterangan: row[6] || '',
-    saldo: parseFloat(row[7]) || 0,
+    saldo: parseNum(row[7]),
   }));
 }
 
@@ -390,7 +399,7 @@ async function getMonthlyBreakdown() {
     }
 
     const tipe = rows[i][4];
-    const jumlah = parseFloat(rows[i][5]) || 0;
+    const jumlah = parseNum(rows[i][5]);
     if (tipe === 'MASUK') monthlyMap[prefix].totalMasuk += jumlah;
     else if (tipe === 'KELUAR') monthlyMap[prefix].totalKeluar += jumlah;
   }
