@@ -338,6 +338,121 @@ async function editLastTransaction({ jumlah, keterangan, tipe }) {
   };
 }
 
+// ─── Ambil Semua Transaksi (untuk export) ───────────────────────────
+async function getAllTransactions() {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return [];
+
+  return rows.slice(1).map((row) => ({
+    tanggal: row[0] || '',
+    waktu: row[1] || '',
+    userId: row[2] || '',
+    username: row[3] || '',
+    tipe: row[4] || '',
+    jumlah: parseFloat(row[5]) || 0,
+    keterangan: row[6] || '',
+    saldo: parseFloat(row[7]) || 0,
+  }));
+}
+
+// ─── Data Bulanan untuk Grafik (6 bulan terakhir) ───────────────────
+async function getMonthlyBreakdown(months = 6) {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  const result = [];
+
+  const now = new Date();
+  const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(wib.getFullYear(), wib.getMonth() - i, 1);
+    const year = d.getFullYear();
+    const month = d.getMonth() + 1;
+    const monthStr = String(month).padStart(2, '0');
+    const prefix = `${year}-${monthStr}`;
+
+    let totalMasuk = 0;
+    let totalKeluar = 0;
+
+    if (rows && rows.length > 1) {
+      for (let j = 1; j < rows.length; j++) {
+        const tanggal = rows[j][0] || '';
+        if (!tanggal.startsWith(prefix)) continue;
+
+        const tipe = rows[j][4];
+        const jumlah = parseFloat(rows[j][5]) || 0;
+        if (tipe === 'MASUK') totalMasuk += jumlah;
+        else if (tipe === 'KELUAR') totalKeluar += jumlah;
+      }
+    }
+
+    const namaBulan = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    result.push({
+      label: `${namaBulan[month]} ${year}`,
+      totalMasuk,
+      totalKeluar,
+    });
+  }
+
+  return result;
+}
+
+// ─── Reset Semua Data ───────────────────────────────────────────────
+async function resetAllData() {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return 0;
+
+  const count = rows.length - 1; // Jumlah baris data (tanpa header)
+
+  // Hapus semua baris data (bukan header)
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = spreadsheet.data.sheets.find((s) => s.properties.title === SHEET_NAME);
+  const sheetIdNum = sheet.properties.sheetId;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: sheetIdNum,
+              dimension: 'ROWS',
+              startIndex: 1, // Mulai setelah header
+              endIndex: rows.length,
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  return count;
+}
+
 module.exports = {
   initializeSheet,
   appendTransaction,
@@ -347,5 +462,9 @@ module.exports = {
   deleteLastTransaction,
   editLastTransaction,
   recalculateSaldo,
+  getAllTransactions,
+  getMonthlyBreakdown,
+  resetAllData,
 };
+
 

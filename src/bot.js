@@ -19,6 +19,13 @@ function formatRupiah(angka) {
   return 'Rp ' + Number(angka).toLocaleString('id-ID');
 }
 
+// ─── Helper: Parse jumlah (support format 10.000 dan 10000) ─────────
+function parseJumlah(str) {
+  // Hapus titik pemisah ribuan, lalu parse
+  const cleaned = str.replace(/\./g, '');
+  return parseFloat(cleaned);
+}
+
 // ─── /start ─────────────────────────────────────────────────────────
 bot.start((ctx) => {
   const name = ctx.from.first_name || 'Kamu';
@@ -35,24 +42,20 @@ bot.start((ctx) => {
 bot.help((ctx) => {
   ctx.reply(
     `📖 *Panduan Penggunaan Bot*\n\n` +
-    `💵 *Catat Pemasukan:*\n` +
-    `/masuk <jumlah> <keterangan>\n` +
-    `Contoh: \`/masuk 500000 Gaji bulanan\`\n\n` +
-    `💸 *Catat Pengeluaran:*\n` +
-    `/keluar <jumlah> <keterangan>\n` +
-    `Contoh: \`/keluar 50000 Makan siang\`\n\n` +
-    `📊 *Laporan Bulan Ini:*\n` +
-    `/laporan\n\n` +
-    `📋 *10 Transaksi Terakhir:*\n` +
-    `/riwayat\n\n` +
-    `✏️ *Edit Transaksi Terakhir:*\n` +
-    `/edit <jumlah_baru> <keterangan_baru>\n` +
-    `Contoh: \`/edit 75000 Makan malam\`\n\n` +
-    `🗑️ *Hapus Transaksi Terakhir:*\n` +
-    `/hapus\n\n` +
+    `💵 /masuk \`<jumlah> <keterangan>\`\n` +
+    `💸 /keluar \`<jumlah> <keterangan>\`\n` +
+    `📊 /laporan — Ringkasan bulan ini\n` +
+    `📅 /bulan \`<bulan> <tahun>\` — Laporan bulan tertentu\n` +
+    `📋 /riwayat — 10 transaksi terakhir\n` +
+    `✏️ /edit \`<jumlah> <keterangan>\` — Edit terakhir\n` +
+    `🗑️ /hapus — Hapus transaksi terakhir\n` +
+    `📈 /grafik — Grafik 6 bulan terakhir\n` +
+    `📁 /export — Export CSV\n` +
+    `🔄 /reset — Hapus semua data\n\n` +
     `💡 *Tips:*\n` +
-    `• Jumlah harus berupa angka tanpa titik/koma: 500000 ✅ | 500.000 ❌\n` +
-    `• Bisa kirim beberapa perintah sekaligus (satu per baris)`,
+    `• Jumlah bisa pakai titik: \`50.000\` atau \`50000\`\n` +
+    `• Bisa kirim beberapa perintah sekaligus (satu per baris)\n` +
+    `• Contoh: \`/keluar 50.000 Makan siang\``,
     { parse_mode: 'Markdown' }
   );
 });
@@ -84,7 +87,7 @@ bot.use(async (ctx, next) => {
         continue;
       }
 
-      const jumlah = parseFloat(args[0]);
+      const jumlah = parseJumlah(args[0]);
       if (isNaN(jumlah) || jumlah <= 0) {
         results.push(`⚠️ Jumlah tidak valid: \`${line}\``);
         hasError = true;
@@ -135,7 +138,7 @@ bot.command('masuk', async (ctx) => {
       );
     }
 
-    const jumlah = parseFloat(args[0]);
+    const jumlah = parseJumlah(args[0]);
     if (isNaN(jumlah) || jumlah <= 0) {
       return ctx.reply('⚠️ Jumlah harus berupa angka positif!\n\nContoh: `/masuk 500000 Gaji bulanan`', { parse_mode: 'Markdown' });
     }
@@ -178,7 +181,7 @@ bot.command('keluar', async (ctx) => {
       );
     }
 
-    const jumlah = parseFloat(args[0]);
+    const jumlah = parseJumlah(args[0]);
     if (isNaN(jumlah) || jumlah <= 0) {
       return ctx.reply('⚠️ Jumlah harus berupa angka positif!\n\nContoh: `/keluar 50000 Makan siang`', { parse_mode: 'Markdown' });
     }
@@ -311,7 +314,7 @@ bot.command('edit', async (ctx) => {
       );
     }
 
-    const jumlah = parseFloat(args[0]);
+    const jumlah = parseJumlah(args[0]);
     if (isNaN(jumlah) || jumlah <= 0) {
       return ctx.reply('⚠️ Jumlah harus berupa angka positif!', { parse_mode: 'Markdown' });
     }
@@ -336,6 +339,171 @@ bot.command('edit', async (ctx) => {
   } catch (error) {
     console.error('Error /edit:', error.message);
     ctx.reply('❌ Terjadi kesalahan saat mengedit transaksi. Silakan coba lagi nanti.');
+  }
+});
+
+// ─── /bulan <bulan> <tahun> ──────────────────────────────────────────
+bot.command('bulan', async (ctx) => {
+  try {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 2) {
+      return ctx.reply(
+        '⚠️ Format: `/bulan <bulan> <tahun>`\n' +
+        'Contoh: `/bulan 1 2026` untuk Januari 2026',
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const month = parseInt(args[0]);
+    const year = parseInt(args[1]);
+
+    if (isNaN(month) || month < 1 || month > 12 || isNaN(year)) {
+      return ctx.reply('⚠️ Bulan harus 1-12 dan tahun harus valid!');
+    }
+
+    const namaBulan = [
+      '', 'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember',
+    ];
+
+    const report = await sheets.getMonthlyReport(year, month);
+
+    if (report.jumlahTransaksi === 0) {
+      return ctx.reply(`📊 Belum ada transaksi di bulan ${namaBulan[month]} ${year}.`);
+    }
+
+    const selisih = report.totalMasuk - report.totalKeluar;
+
+    ctx.reply(
+      `📊 *Laporan Keuangan*\n` +
+      `📅 ${namaBulan[month]} ${year}\n\n` +
+      `💵 Total Pemasukan: ${formatRupiah(report.totalMasuk)}\n` +
+      `💸 Total Pengeluaran: ${formatRupiah(report.totalKeluar)}\n` +
+      `${selisih >= 0 ? '📈' : '📉'} Selisih: ${formatRupiah(selisih)}\n\n` +
+      `📋 Total Transaksi: ${report.jumlahTransaksi}`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /bulan:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat mengambil laporan.');
+  }
+});
+
+// ─── /grafik ─────────────────────────────────────────────────────────
+bot.command('grafik', async (ctx) => {
+  try {
+    const data = await sheets.getMonthlyBreakdown(6);
+
+    const labels = data.map((d) => d.label);
+    const masukData = data.map((d) => d.totalMasuk);
+    const keluarData = data.map((d) => d.totalKeluar);
+
+    const chartConfig = {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Pemasukan',
+            data: masukData,
+            backgroundColor: 'rgba(75, 192, 192, 0.8)',
+          },
+          {
+            label: 'Pengeluaran',
+            data: keluarData,
+            backgroundColor: 'rgba(255, 99, 132, 0.8)',
+          },
+        ],
+      },
+      options: {
+        plugins: {
+          title: { display: true, text: 'Pemasukan vs Pengeluaran (6 Bulan Terakhir)' },
+        },
+        scales: {
+          y: { beginAtZero: true },
+        },
+      },
+    };
+
+    const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&w=600&h=400&bkg=white`;
+
+    await ctx.replyWithPhoto({ url: chartUrl }, { caption: '📈 Grafik Keuangan 6 Bulan Terakhir' });
+  } catch (error) {
+    console.error('Error /grafik:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat membuat grafik.');
+  }
+});
+
+// ─── /export ─────────────────────────────────────────────────────────
+bot.command('export', async (ctx) => {
+  try {
+    const transactions = await sheets.getAllTransactions();
+
+    if (transactions.length === 0) {
+      return ctx.reply('📋 Belum ada transaksi untuk di-export.');
+    }
+
+    // Buat CSV
+    let csv = 'Tanggal,Waktu,User ID,Username,Tipe,Jumlah,Keterangan,Saldo Kumulatif\n';
+    transactions.forEach((tx) => {
+      csv += `${tx.tanggal},${tx.waktu},${tx.userId},${tx.username},${tx.tipe},${tx.jumlah},"${tx.keterangan}",${tx.saldo}\n`;
+    });
+
+    const buffer = Buffer.from(csv, 'utf-8');
+    const now = new Date();
+    const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    const filename = `keuangan_${wib.toISOString().split('T')[0]}.csv`;
+
+    await ctx.replyWithDocument(
+      { source: buffer, filename },
+      { caption: `📁 Export ${transactions.length} transaksi` }
+    );
+  } catch (error) {
+    console.error('Error /export:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat export data.');
+  }
+});
+
+// ─── /reset ──────────────────────────────────────────────────────────
+const resetConfirm = new Map();
+
+bot.command('reset', async (ctx) => {
+  try {
+    const userId = ctx.from.id;
+    const args = ctx.message.text.split(' ').slice(1);
+
+    if (args[0] === 'KONFIRMASI') {
+      // Cek apakah user sudah request reset sebelumnya
+      if (!resetConfirm.has(userId)) {
+        return ctx.reply('⚠️ Ketik `/reset` dulu sebelum konfirmasi.', { parse_mode: 'Markdown' });
+      }
+
+      resetConfirm.delete(userId);
+      const count = await sheets.resetAllData();
+
+      return ctx.reply(
+        `🔄 *Reset berhasil!*\n\n` +
+        `${count} transaksi telah dihapus. Data dimulai dari awal.`,
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    // Set konfirmasi (berlaku 60 detik)
+    resetConfirm.set(userId, Date.now());
+    setTimeout(() => resetConfirm.delete(userId), 60000);
+
+    ctx.reply(
+      `⚠️ *PERINGATAN!*\n\n` +
+      `Perintah ini akan *menghapus SEMUA* data transaksi.\n` +
+      `Aksi ini *tidak bisa dibatalkan*.\n\n` +
+      `Jika yakin, ketik:\n` +
+      `\`/reset KONFIRMASI\`\n\n` +
+      `Konfirmasi berlaku 60 detik.`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /reset:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat reset data.');
   }
 });
 
