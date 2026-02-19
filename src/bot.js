@@ -50,9 +50,10 @@ bot.help((ctx) => {
     `📋 /riwayat — 10 transaksi terakhir\n` +
     `✏️ /edit \`<jumlah> <keterangan>\` — Edit terakhir\n` +
     `🗑️ /hapus — Hapus transaksi terakhir\n` +
-    `📈 /grafik — Grafik 6 bulan terakhir\n` +
-    `📁 /export — Export CSV\n` +
-    `🔄 /reset — Hapus semua data\n\n` +
+    `📈 /grafik — Grafik pemasukan vs pengeluaran\n` +
+    `📁 /export — Export PDF\n` +
+    `🔄 /reset — Hapus semua data\n` +
+    `📦 /migrasi — Pindahkan data Sheet1 ke sheet bulanan\n\n` +
     `💡 *Tips:*\n` +
     `• Jumlah bisa pakai titik: \`50.000\` atau \`50000\`\n` +
     `• Bisa kirim beberapa perintah sekaligus (satu per baris)\n` +
