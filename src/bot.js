@@ -45,10 +45,81 @@ bot.help((ctx) => {
     `/laporan\n\n` +
     `📋 *10 Transaksi Terakhir:*\n` +
     `/riwayat\n\n` +
-    `💡 *Tips:* Jumlah harus berupa angka tanpa titik atau koma.\n` +
-    `Contoh: 500000 ✅ | 500.000 ❌`,
+    `✏️ *Edit Transaksi Terakhir:*\n` +
+    `/edit <jumlah_baru> <keterangan_baru>\n` +
+    `Contoh: \`/edit 75000 Makan malam\`\n\n` +
+    `🗑️ *Hapus Transaksi Terakhir:*\n` +
+    `/hapus\n\n` +
+    `💡 *Tips:*\n` +
+    `• Jumlah harus berupa angka tanpa titik/koma: 500000 ✅ | 500.000 ❌\n` +
+    `• Bisa kirim beberapa perintah sekaligus (satu per baris)`,
     { parse_mode: 'Markdown' }
   );
+});
+
+// ─── Middleware: Batch multi-line commands ───────────────────────────
+bot.use(async (ctx, next) => {
+  if (!ctx.message || !ctx.message.text) return next();
+
+  const text = ctx.message.text.trim();
+  const lines = text.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+
+  // Cek apakah ada lebih dari 1 baris yang dimulai dengan /masuk atau /keluar
+  const commandLines = lines.filter((l) => /^\/(masuk|keluar)\s/i.test(l));
+  if (commandLines.length <= 1) return next();
+
+  // Proses batch
+  try {
+    const results = [];
+    let hasError = false;
+
+    for (const line of commandLines) {
+      const parts = line.split(/\s+/);
+      const cmd = parts[0].replace('/', '').toLowerCase().split('@')[0];
+      const args = parts.slice(1);
+
+      if (args.length < 2) {
+        results.push(`⚠️ Format salah: \`${line}\``);
+        hasError = true;
+        continue;
+      }
+
+      const jumlah = parseFloat(args[0]);
+      if (isNaN(jumlah) || jumlah <= 0) {
+        results.push(`⚠️ Jumlah tidak valid: \`${line}\``);
+        hasError = true;
+        continue;
+      }
+
+      const tipe = cmd === 'masuk' ? 'MASUK' : 'KELUAR';
+      const keterangan = args.slice(1).join(' ');
+
+      const result = await sheets.appendTransaction({
+        userId: ctx.from.id,
+        username: ctx.from.username || ctx.from.first_name || '-',
+        tipe,
+        jumlah,
+        keterangan,
+      });
+
+      const emoji = tipe === 'MASUK' ? '💵' : '💸';
+      results.push(`${emoji} ${tipe} ${formatRupiah(jumlah)} — ${keterangan}`);
+    }
+
+    // Ambil saldo terbaru
+    const saldoAkhir = await sheets.getLastSaldo();
+
+    let message = `✅ *${commandLines.length} transaksi berhasil dicatat!*\n\n`;
+    results.forEach((r, i) => {
+      message += `${i + 1}. ${r}\n`;
+    });
+    message += `\n💰 *Saldo: ${formatRupiah(saldoAkhir)}*`;
+
+    return ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error batch:', error.message);
+    return ctx.reply('❌ Terjadi kesalahan saat mencatat transaksi batch. Silakan coba lagi.');
+  }
 });
 
 // ─── /masuk <jumlah> <keterangan> ───────────────────────────────────
@@ -198,6 +269,73 @@ bot.command('riwayat', async (ctx) => {
   } catch (error) {
     console.error('Error /riwayat:', error.message);
     ctx.reply('❌ Terjadi kesalahan saat mengambil riwayat. Silakan coba lagi nanti.');
+  }
+});
+
+// ─── /hapus ──────────────────────────────────────────────────────────
+bot.command('hapus', async (ctx) => {
+  try {
+    const deleted = await sheets.deleteLastTransaction();
+
+    if (!deleted) {
+      return ctx.reply('📋 Tidak ada transaksi yang bisa dihapus.');
+    }
+
+    const emoji = deleted.tipe === 'MASUK' ? '💵' : '💸';
+    const saldo = await sheets.getLastSaldo();
+
+    ctx.reply(
+      `🗑️ *Transaksi terakhir berhasil dihapus!*\n\n` +
+      `${emoji} ${deleted.tipe} ${formatRupiah(deleted.jumlah)}\n` +
+      `📝 ${deleted.keterangan}\n` +
+      `📅 ${deleted.tanggal} ${deleted.waktu}\n\n` +
+      `💰 *Saldo: ${formatRupiah(saldo)}*`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /hapus:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat menghapus transaksi. Silakan coba lagi nanti.');
+  }
+});
+
+// ─── /edit <jumlah> <keterangan> ────────────────────────────────────
+bot.command('edit', async (ctx) => {
+  try {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 2) {
+      return ctx.reply(
+        '⚠️ Format salah!\n\n' +
+        'Gunakan: `/edit <jumlah_baru> <keterangan_baru>`\n' +
+        'Contoh: `/edit 75000 Makan malam`',
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const jumlah = parseFloat(args[0]);
+    if (isNaN(jumlah) || jumlah <= 0) {
+      return ctx.reply('⚠️ Jumlah harus berupa angka positif!', { parse_mode: 'Markdown' });
+    }
+
+    const keterangan = args.slice(1).join(' ');
+
+    const result = await sheets.editLastTransaction({ jumlah, keterangan });
+
+    if (!result) {
+      return ctx.reply('📋 Tidak ada transaksi yang bisa diedit.');
+    }
+
+    ctx.reply(
+      `✏️ *Transaksi terakhir berhasil diedit!*\n\n` +
+      `*Sebelum:*\n` +
+      `${result.old.tipe} ${formatRupiah(result.old.jumlah)} — ${result.old.keterangan}\n\n` +
+      `*Sesudah:*\n` +
+      `${result.new.tipe} ${formatRupiah(result.new.jumlah)} — ${result.new.keterangan}\n\n` +
+      `💰 *Saldo: ${formatRupiah(result.saldoBaru)}*`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /edit:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat mengedit transaksi. Silakan coba lagi nanti.');
   }
 });
 

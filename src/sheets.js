@@ -196,10 +196,156 @@ async function getRecentTransactions(count = 10) {
   }));
 }
 
+// ─── Hitung Ulang Saldo Kumulatif ───────────────────────────────────
+async function recalculateSaldo() {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return;
+
+  let saldo = 0;
+  const updates = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const tipe = row[4];
+    const jumlah = parseFloat(row[5]) || 0;
+
+    if (tipe === 'MASUK') {
+      saldo += jumlah;
+    } else if (tipe === 'KELUAR') {
+      saldo -= jumlah;
+    }
+
+    updates.push([saldo]);
+  }
+
+  // Update kolom H (Saldo Kumulatif) untuk semua baris data
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAME}!H2:H${rows.length}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: updates,
+    },
+  });
+}
+
+// ─── Hapus Transaksi Terakhir ───────────────────────────────────────
+async function deleteLastTransaction() {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) {
+    return null; // Tidak ada transaksi
+  }
+
+  const lastRow = rows[rows.length - 1];
+  const deleted = {
+    tanggal: lastRow[0],
+    waktu: lastRow[1],
+    tipe: lastRow[4],
+    jumlah: parseFloat(lastRow[5]) || 0,
+    keterangan: lastRow[6],
+  };
+
+  // Hapus baris terakhir menggunakan batchUpdate
+  // Pertama, dapatkan sheetId (biasanya 0 untuk Sheet1)
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = spreadsheet.data.sheets.find((s) => s.properties.title === SHEET_NAME);
+  const sheetIdNum = sheet.properties.sheetId;
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          deleteDimension: {
+            range: {
+              sheetId: sheetIdNum,
+              dimension: 'ROWS',
+              startIndex: rows.length - 1, // 0-indexed
+              endIndex: rows.length,
+            },
+          },
+        },
+      ],
+    },
+  });
+
+  return deleted;
+}
+
+// ─── Edit Transaksi Terakhir ────────────────────────────────────────
+async function editLastTransaction({ jumlah, keterangan, tipe }) {
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: RANGE_ALL,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) {
+    return null;
+  }
+
+  const lastRowIndex = rows.length; // 1-indexed untuk Sheets API
+  const lastRow = rows[rows.length - 1];
+
+  const oldData = {
+    tipe: lastRow[4],
+    jumlah: parseFloat(lastRow[5]) || 0,
+    keterangan: lastRow[6],
+  };
+
+  // Update field yang diberikan
+  const newTipe = tipe || lastRow[4];
+  const newJumlah = jumlah !== undefined ? jumlah : parseFloat(lastRow[5]) || 0;
+  const newKeterangan = keterangan !== undefined ? keterangan : lastRow[6];
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${SHEET_NAME}!E${lastRowIndex}:G${lastRowIndex}`,
+    valueInputOption: 'RAW',
+    requestBody: {
+      values: [[newTipe, newJumlah, newKeterangan]],
+    },
+  });
+
+  // Hitung ulang saldo kumulatif
+  await recalculateSaldo();
+
+  const newSaldo = await getLastSaldo();
+
+  return {
+    old: oldData,
+    new: { tipe: newTipe, jumlah: newJumlah, keterangan: newKeterangan },
+    saldoBaru: newSaldo,
+  };
+}
+
 module.exports = {
   initializeSheet,
   appendTransaction,
   getLastSaldo,
   getMonthlyReport,
   getRecentTransactions,
+  deleteLastTransaction,
+  editLastTransaction,
+  recalculateSaldo,
 };
+
