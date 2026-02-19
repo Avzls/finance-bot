@@ -621,6 +621,247 @@ async function migrateFromSheet1() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════
+// ─── CICILAN (Recurring Payments) ───────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+
+const CICILAN_SHEET = 'Cicilan';
+const CICILAN_HEADERS = ['UserID', 'ChatID', 'Username', 'Jumlah', 'Keterangan', 'TotalBulan', 'SisaBulan', 'TanggalMulai'];
+
+async function ensureCicilanSheet() {
+  const allNames = await getAllSheetNames();
+  if (allNames.includes(CICILAN_SHEET)) return;
+
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: CICILAN_SHEET } } }],
+    },
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${CICILAN_SHEET}'!A1:H1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [CICILAN_HEADERS] },
+  });
+}
+
+async function addCicilan({ userId, chatId, username, jumlah, keterangan, totalBulan }) {
+  await ensureCicilanSheet();
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const now = new Date();
+  const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  const tanggalMulai = wib.toISOString().split('T')[0];
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `'${CICILAN_SHEET}'!A:H`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[String(userId), String(chatId), username, jumlah, keterangan, totalBulan, totalBulan, tanggalMulai]],
+    },
+  });
+}
+
+async function getCicilanList(userId) {
+  await ensureCicilanSheet();
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${CICILAN_SHEET}'!A:H`,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return [];
+
+  const userIdStr = String(userId);
+  return rows.slice(1)
+    .map((row, idx) => ({
+      index: idx + 2, // Baris di sheet (1-indexed + header)
+      userId: row[0],
+      chatId: row[1],
+      username: row[2],
+      jumlah: parseNum(row[3]),
+      keterangan: row[4] || '',
+      totalBulan: parseInt(row[5]) || 0,
+      sisaBulan: parseInt(row[6]) || 0,
+      tanggalMulai: row[7] || '',
+    }))
+    .filter((c) => c.userId === userIdStr && c.sisaBulan > 0);
+}
+
+async function deleteCicilan(userId, nomor) {
+  const list = await getCicilanList(userId);
+  if (nomor < 1 || nomor > list.length) return null;
+
+  const item = list[nomor - 1];
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  // Set sisa bulan ke 0 (soft delete)
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${CICILAN_SHEET}'!G${item.index}`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [[0]] },
+  });
+
+  return item;
+}
+
+async function processAllCicilan() {
+  await ensureCicilanSheet();
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${CICILAN_SHEET}'!A:H`,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return [];
+
+  const processed = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const sisaBulan = parseInt(rows[i][6]) || 0;
+    if (sisaBulan <= 0) continue;
+
+    const userId = rows[i][0];
+    const chatId = rows[i][1];
+    const username = rows[i][2] || '-';
+    const jumlah = parseNum(rows[i][3]);
+    const keterangan = `[Cicilan] ${rows[i][4] || ''}`;
+
+    // Catat sebagai transaksi keluar
+    await appendTransaction({
+      userId,
+      username,
+      tipe: 'KELUAR',
+      jumlah,
+      keterangan,
+    });
+
+    // Kurangi sisa bulan
+    const newSisa = sisaBulan - 1;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${CICILAN_SHEET}'!G${i + 1}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[newSisa]] },
+    });
+
+    processed.push({ chatId, jumlah, keterangan: rows[i][4], sisaBulan: newSisa, totalBulan: parseInt(rows[i][5]) || 0 });
+  }
+
+  return processed;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// ─── SUBSCRIBERS (Daily Notification) ───────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+
+const SUBSCRIBER_SHEET = 'Subscribers';
+const SUBSCRIBER_HEADERS = ['UserID', 'ChatID', 'Username', 'Aktif'];
+
+async function ensureSubscriberSheet() {
+  const allNames = await getAllSheetNames();
+  if (allNames.includes(SUBSCRIBER_SHEET)) return;
+
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: SUBSCRIBER_SHEET } } }],
+    },
+  });
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId,
+    range: `'${SUBSCRIBER_SHEET}'!A1:D1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [SUBSCRIBER_HEADERS] },
+  });
+}
+
+async function toggleSubscriber({ userId, chatId, username }) {
+  await ensureSubscriberSheet();
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${SUBSCRIBER_SHEET}'!A:D`,
+  });
+
+  const rows = res.data.values || [];
+  const userIdStr = String(userId);
+
+  // Cari user yang sudah ada
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i][0] === userIdStr) {
+      const currentStatus = rows[i][3] === 'YA';
+      const newStatus = currentStatus ? 'TIDAK' : 'YA';
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: `'${SUBSCRIBER_SHEET}'!D${i + 1}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [[newStatus]] },
+      });
+
+      return newStatus === 'YA';
+    }
+  }
+
+  // User baru — aktifkan
+  await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range: `'${SUBSCRIBER_SHEET}'!A:D`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: {
+      values: [[userIdStr, String(chatId), username || '-', 'YA']],
+    },
+  });
+
+  return true;
+}
+
+async function getActiveSubscribers() {
+  await ensureSubscriberSheet();
+  const sheets = await getSheets();
+  const spreadsheetId = getSheetId();
+
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `'${SUBSCRIBER_SHEET}'!A:D`,
+  });
+
+  const rows = res.data.values;
+  if (!rows || rows.length <= 1) return [];
+
+  return rows.slice(1)
+    .filter((row) => row[3] === 'YA')
+    .map((row) => ({
+      userId: row[0],
+      chatId: row[1],
+      username: row[2],
+    }));
+}
+
 module.exports = {
   initializeSheet,
   appendTransaction,
@@ -634,4 +875,10 @@ module.exports = {
   getMonthlyBreakdown,
   resetAllData,
   migrateFromSheet1,
+  addCicilan,
+  getCicilanList,
+  deleteCicilan,
+  processAllCicilan,
+  toggleSubscriber,
+  getActiveSubscribers,
 };

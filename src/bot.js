@@ -51,9 +51,15 @@ bot.help((ctx) => {
     `✏️ /edit \`<jumlah> <keterangan>\` — Edit terakhir\n` +
     `🗑️ /hapus — Hapus transaksi terakhir\n` +
     `📈 /grafik — Grafik pemasukan vs pengeluaran\n` +
-    `📁 /export — Export PDF\n` +
+    `📁 /export — Export PDF\n\n` +
+    `🔄 *Cicilan:*\n` +
+    `/cicilan \`<jumlah> <bulan> <keterangan>\`\n` +
+    `/listcicilan — Lihat semua cicilan aktif\n` +
+    `/hapuscicilan \`<nomor>\` — Hapus cicilan\n\n` +
+    `⚙️ *Lainnya:*\n` +
+    `🔔 /notif — Toggle pengingat harian (21:00 WIB)\n` +
     `🔄 /reset — Hapus semua data\n` +
-    `📦 /migrasi — Pindahkan data Sheet1 ke sheet bulanan\n\n` +
+    `📦 /migrasi — Migrasi data Sheet1\n\n` +
     `💡 *Tips:*\n` +
     `• Jumlah bisa pakai titik: \`50.000\` atau \`50000\`\n` +
     `• Bisa kirim beberapa perintah sekaligus (satu per baris)\n` +
@@ -631,6 +637,129 @@ bot.command('reset', async (ctx) => {
   } catch (error) {
     console.error('Error /reset:', error.message);
     ctx.reply('❌ Terjadi kesalahan saat reset data.');
+  }
+});
+
+// ─── /cicilan <jumlah> <bulan> <keterangan> ─────────────────────────
+bot.command('cicilan', async (ctx) => {
+  try {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 3) {
+      return ctx.reply(
+        '⚠️ Format: `/cicilan <jumlah> <bulan> <keterangan>`\n' +
+        'Contoh: `/cicilan 3.300.000 12 Kredit Shopee`',
+        { parse_mode: 'Markdown' }
+      );
+    }
+
+    const jumlah = parseJumlah(args[0]);
+    if (isNaN(jumlah) || jumlah <= 0) {
+      return ctx.reply('⚠️ Jumlah harus berupa angka positif!');
+    }
+
+    const totalBulan = parseInt(args[1]);
+    if (isNaN(totalBulan) || totalBulan <= 0) {
+      return ctx.reply('⚠️ Jumlah bulan harus berupa angka positif!');
+    }
+
+    const keterangan = args.slice(2).join(' ');
+
+    await sheets.addCicilan({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      username: ctx.from.username || ctx.from.first_name || '-',
+      jumlah,
+      keterangan,
+      totalBulan,
+    });
+
+    ctx.reply(
+      `🔄 *Cicilan berhasil ditambahkan!*\n\n` +
+      `💸 ${formatRupiah(jumlah)}/bulan\n` +
+      `📝 ${keterangan}\n` +
+      `📅 ${totalBulan} bulan\n` +
+      `💰 Total: ${formatRupiah(jumlah * totalBulan)}\n\n` +
+      `Cicilan akan otomatis tercatat setiap awal bulan.`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /cicilan:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat menambahkan cicilan.');
+  }
+});
+
+// ─── /listcicilan ───────────────────────────────────────────────────
+bot.command('listcicilan', async (ctx) => {
+  try {
+    const list = await sheets.getCicilanList(ctx.from.id);
+
+    if (list.length === 0) {
+      return ctx.reply('📋 Kamu belum punya cicilan aktif.');
+    }
+
+    let message = '🔄 *Daftar Cicilan Aktif*\n\n';
+    list.forEach((c, i) => {
+      const progress = c.totalBulan - c.sisaBulan;
+      message += `${i + 1}. *${c.keterangan}*\n`;
+      message += `   💸 ${formatRupiah(c.jumlah)}/bulan\n`;
+      message += `   📅 ${progress}/${c.totalBulan} bulan (sisa ${c.sisaBulan})\n\n`;
+    });
+
+    message += `Hapus cicilan: \`/hapuscicilan <nomor>\``;
+    ctx.reply(message, { parse_mode: 'Markdown' });
+  } catch (error) {
+    console.error('Error /listcicilan:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat mengambil daftar cicilan.');
+  }
+});
+
+// ─── /hapuscicilan <nomor> ──────────────────────────────────────────
+bot.command('hapuscicilan', async (ctx) => {
+  try {
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length < 1) {
+      return ctx.reply('⚠️ Format: `/hapuscicilan <nomor>`\nLihat nomornya di `/listcicilan`', { parse_mode: 'Markdown' });
+    }
+
+    const nomor = parseInt(args[0]);
+    const deleted = await sheets.deleteCicilan(ctx.from.id, nomor);
+
+    if (!deleted) {
+      return ctx.reply('⚠️ Nomor cicilan tidak valid. Cek `/listcicilan`', { parse_mode: 'Markdown' });
+    }
+
+    ctx.reply(
+      `🗑️ *Cicilan dihapus!*\n\n` +
+      `${deleted.keterangan} — ${formatRupiah(deleted.jumlah)}/bulan`,
+      { parse_mode: 'Markdown' }
+    );
+  } catch (error) {
+    console.error('Error /hapuscicilan:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat menghapus cicilan.');
+  }
+});
+
+// ─── /notif ─────────────────────────────────────────────────────────
+bot.command('notif', async (ctx) => {
+  try {
+    const isActive = await sheets.toggleSubscriber({
+      userId: ctx.from.id,
+      chatId: ctx.chat.id,
+      username: ctx.from.username || ctx.from.first_name || '-',
+    });
+
+    if (isActive) {
+      ctx.reply(
+        '🔔 *Notifikasi AKTIF!*\n\n' +
+        'Kamu akan menerima pengingat setiap hari jam 21:00 WIB untuk mencatat keuangan.',
+        { parse_mode: 'Markdown' }
+      );
+    } else {
+      ctx.reply('🔕 *Notifikasi NONAKTIF.*\n\nKetik `/notif` lagi untuk mengaktifkan.', { parse_mode: 'Markdown' });
+    }
+  } catch (error) {
+    console.error('Error /notif:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat mengubah pengaturan notifikasi.');
   }
 });
 
