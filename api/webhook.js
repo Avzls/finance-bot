@@ -9,6 +9,7 @@ module.exports = async (req, res) => {
   try {
     // Inisialisasi sheet sekali saja
     if (!initialized) {
+      await sheets.migrateFromSheet1();
       await sheets.initializeSheet();
       initialized = true;
     }

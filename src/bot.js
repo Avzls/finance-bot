@@ -635,6 +635,23 @@ bot.command('reset', async (ctx) => {
   }
 });
 
+// ─── /migrasi — Pindahkan data Sheet1 ke sheet bulanan ──────────────
+bot.command('migrasi', async (ctx) => {
+  try {
+    ctx.reply('⏳ Memulai migrasi data dari Sheet1 ke sheet per bulan...');
+    const result = await sheets.migrateFromSheet1();
+
+    if (result) {
+      ctx.reply('✅ *Migrasi selesai!*\n\nData dari Sheet1 sudah dipindahkan ke sheet per bulan.', { parse_mode: 'Markdown' });
+    } else {
+      ctx.reply('ℹ️ Tidak ada data di Sheet1 untuk dimigrasi, atau Sheet1 tidak ditemukan.');
+    }
+  } catch (error) {
+    console.error('Error /migrasi:', error.message);
+    ctx.reply('❌ Terjadi kesalahan saat migrasi: ' + error.message);
+  }
+});
+
 // ─── Pesan tidak dikenali (hanya di private chat) ───────────────────
 bot.on('text', (ctx) => {
   if (ctx.chat.type !== 'private') return;
@@ -651,6 +668,8 @@ module.exports = bot;
 if (require.main === module) {
   (async () => {
     try {
+      // Auto-migrasi jika Sheet1 masih ada
+      await sheets.migrateFromSheet1();
       await sheets.initializeSheet();
       console.log('✅ Koneksi Google Sheets berhasil.');
       await bot.launch();
