@@ -363,8 +363,8 @@ async function getAllTransactions() {
   }));
 }
 
-// ─── Data Bulanan untuk Grafik (6 bulan terakhir) ───────────────────
-async function getMonthlyBreakdown(months = 6) {
+// ─── Data Bulanan untuk Grafik (semua bulan dari awal) ──────────────
+async function getMonthlyBreakdown() {
   const sheets = await getSheets();
   const spreadsheetId = getSheetId();
 
@@ -374,42 +374,37 @@ async function getMonthlyBreakdown(months = 6) {
   });
 
   const rows = res.data.values;
-  const result = [];
+  if (!rows || rows.length <= 1) return [];
 
-  const now = new Date();
-  const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+  // Kumpulkan data per bulan dari semua transaksi
+  const monthlyMap = {};
+  const namaBulan = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
-  for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(wib.getFullYear(), wib.getMonth() - i, 1);
-    const year = d.getFullYear();
-    const month = d.getMonth() + 1;
-    const monthStr = String(month).padStart(2, '0');
-    const prefix = `${year}-${monthStr}`;
+  for (let i = 1; i < rows.length; i++) {
+    const tanggal = rows[i][0] || '';
+    if (!tanggal) continue;
 
-    let totalMasuk = 0;
-    let totalKeluar = 0;
-
-    if (rows && rows.length > 1) {
-      for (let j = 1; j < rows.length; j++) {
-        const tanggal = rows[j][0] || '';
-        if (!tanggal.startsWith(prefix)) continue;
-
-        const tipe = rows[j][4];
-        const jumlah = parseFloat(rows[j][5]) || 0;
-        if (tipe === 'MASUK') totalMasuk += jumlah;
-        else if (tipe === 'KELUAR') totalKeluar += jumlah;
-      }
+    const prefix = tanggal.substring(0, 7); // YYYY-MM
+    if (!monthlyMap[prefix]) {
+      monthlyMap[prefix] = { totalMasuk: 0, totalKeluar: 0 };
     }
 
-    const namaBulan = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-    result.push({
-      label: `${namaBulan[month]} ${year}`,
-      totalMasuk,
-      totalKeluar,
-    });
+    const tipe = rows[i][4];
+    const jumlah = parseFloat(rows[i][5]) || 0;
+    if (tipe === 'MASUK') monthlyMap[prefix].totalMasuk += jumlah;
+    else if (tipe === 'KELUAR') monthlyMap[prefix].totalKeluar += jumlah;
   }
 
-  return result;
+  // Urutkan berdasarkan bulan dan konversi ke array
+  const sortedKeys = Object.keys(monthlyMap).sort();
+  return sortedKeys.map((key) => {
+    const [y, m] = key.split('-');
+    return {
+      label: `${namaBulan[parseInt(m)]} ${y}`,
+      totalMasuk: monthlyMap[key].totalMasuk,
+      totalKeluar: monthlyMap[key].totalKeluar,
+    };
+  });
 }
 
 // ─── Reset Semua Data ───────────────────────────────────────────────

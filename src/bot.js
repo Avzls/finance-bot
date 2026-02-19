@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const { Telegraf } = require('telegraf');
+const PDFDocument = require('pdfkit');
 const sheets = require('./sheets');
 
 // ─── Validasi Environment Variables ─────────────────────────────────
@@ -392,7 +393,11 @@ bot.command('bulan', async (ctx) => {
 // ─── /grafik ─────────────────────────────────────────────────────────
 bot.command('grafik', async (ctx) => {
   try {
-    const data = await sheets.getMonthlyBreakdown(6);
+    const data = await sheets.getMonthlyBreakdown();
+
+    if (data.length === 0) {
+      return ctx.reply('📋 Belum ada data transaksi untuk dibuat grafik.');
+    }
 
     const labels = data.map((d) => d.label);
     const masukData = data.map((d) => d.totalMasuk);
@@ -417,7 +422,7 @@ bot.command('grafik', async (ctx) => {
       },
       options: {
         plugins: {
-          title: { display: true, text: 'Pemasukan vs Pengeluaran (6 Bulan Terakhir)' },
+          title: { display: true, text: 'Pemasukan vs Pengeluaran' },
         },
         scales: {
           y: { beginAtZero: true },
@@ -427,7 +432,7 @@ bot.command('grafik', async (ctx) => {
 
     const chartUrl = `https://quickchart.io/chart?c=${encodeURIComponent(JSON.stringify(chartConfig))}&w=600&h=400&bkg=white`;
 
-    await ctx.replyWithPhoto({ url: chartUrl }, { caption: '📈 Grafik Keuangan 6 Bulan Terakhir' });
+    await ctx.replyWithPhoto({ url: chartUrl }, { caption: '📈 Grafik Keuangan' });
   } catch (error) {
     console.error('Error /grafik:', error.message);
     ctx.reply('❌ Terjadi kesalahan saat membuat grafik.');
@@ -443,20 +448,86 @@ bot.command('export', async (ctx) => {
       return ctx.reply('📋 Belum ada transaksi untuk di-export.');
     }
 
-    // Buat CSV
-    let csv = 'Tanggal,Waktu,User ID,Username,Tipe,Jumlah,Keterangan,Saldo Kumulatif\n';
+    // Hitung total
+    let totalMasuk = 0;
+    let totalKeluar = 0;
     transactions.forEach((tx) => {
-      csv += `${tx.tanggal},${tx.waktu},${tx.userId},${tx.username},${tx.tipe},${tx.jumlah},"${tx.keterangan}",${tx.saldo}\n`;
+      if (tx.tipe === 'MASUK') totalMasuk += tx.jumlah;
+      else if (tx.tipe === 'KELUAR') totalKeluar += tx.jumlah;
     });
 
-    const buffer = Buffer.from(csv, 'utf-8');
+    // Buat PDF
+    const doc = new PDFDocument({ size: 'A4', margin: 40 });
+    const chunks = [];
+
+    doc.on('data', (chunk) => chunks.push(chunk));
+
+    const pdfReady = new Promise((resolve) => {
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+    });
+
+    // Header
+    doc.fontSize(18).font('Helvetica-Bold').text('Laporan Keuangan', { align: 'center' });
+    doc.moveDown(0.3);
+    doc.fontSize(10).font('Helvetica').text(`Diekspor: ${new Date(Date.now() + 7 * 3600000).toISOString().split('T')[0]}`, { align: 'center' });
+    doc.moveDown(1);
+
+    // Ringkasan
+    doc.fontSize(12).font('Helvetica-Bold').text('Ringkasan');
+    doc.moveDown(0.3);
+    doc.fontSize(10).font('Helvetica');
+    doc.text(`Total Pemasukan  : ${formatRupiah(totalMasuk)}`);
+    doc.text(`Total Pengeluaran: ${formatRupiah(totalKeluar)}`);
+    doc.text(`Saldo            : ${formatRupiah(totalMasuk - totalKeluar)}`);
+    doc.text(`Jumlah Transaksi : ${transactions.length}`);
+    doc.moveDown(1);
+
+    // Tabel header
+    doc.fontSize(12).font('Helvetica-Bold').text('Detail Transaksi');
+    doc.moveDown(0.5);
+
+    const tableTop = doc.y;
+    const colX = [40, 120, 175, 240, 340, 520];
+    const colHeaders = ['Tanggal', 'Waktu', 'Tipe', 'Jumlah', 'Keterangan', 'Saldo'];
+
+    // Header row
+    doc.fontSize(8).font('Helvetica-Bold');
+    colHeaders.forEach((h, i) => {
+      doc.text(h, colX[i], tableTop, { width: (colX[i + 1] || 560) - colX[i], lineBreak: false });
+    });
+
+    doc.moveTo(40, tableTop + 12).lineTo(555, tableTop + 12).stroke();
+    let rowY = tableTop + 16;
+
+    // Data rows
+    doc.font('Helvetica').fontSize(8);
+    transactions.forEach((tx) => {
+      if (rowY > 780) {
+        doc.addPage();
+        rowY = 40;
+      }
+
+      const color = tx.tipe === 'MASUK' ? '#2e7d32' : '#c62828';
+      doc.fillColor('#000000').text(tx.tanggal, colX[0], rowY, { width: 75, lineBreak: false });
+      doc.text(tx.waktu, colX[1], rowY, { width: 50, lineBreak: false });
+      doc.fillColor(color).text(tx.tipe, colX[2], rowY, { width: 60, lineBreak: false });
+      doc.fillColor('#000000').text(formatRupiah(tx.jumlah), colX[3], rowY, { width: 95, lineBreak: false });
+      doc.text(tx.keterangan.substring(0, 25), colX[4], rowY, { width: 175, lineBreak: false });
+      doc.text(formatRupiah(tx.saldo), colX[5], rowY, { width: 80, lineBreak: false });
+
+      rowY += 14;
+    });
+
+    doc.end();
+    const buffer = await pdfReady;
+
     const now = new Date();
     const wib = new Date(now.getTime() + 7 * 60 * 60 * 1000);
-    const filename = `keuangan_${wib.toISOString().split('T')[0]}.csv`;
+    const filename = `keuangan_${wib.toISOString().split('T')[0]}.pdf`;
 
     await ctx.replyWithDocument(
       { source: buffer, filename },
-      { caption: `📁 Export ${transactions.length} transaksi` }
+      { caption: `📁 Export ${transactions.length} transaksi (PDF)` }
     );
   } catch (error) {
     console.error('Error /export:', error.message);
